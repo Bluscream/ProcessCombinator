@@ -50,6 +50,7 @@ foreach (var processData in config.Processes) {
         Log($"[{cnt}.{subcnt}] Process: {subProgramData.ProcessName}");
         Log($"[{cnt}.{subcnt}] Program Path: {subProgramData.ProgramPath}");
         Log($"[{cnt}.{subcnt}] Arguments: {string.Join(" ", subProgramData.Arguments)}");
+        Log($"[{cnt}.{subcnt}] Keep Running: {subProgramData.KeepRunning}");
         subcnt++;
     }
     cnt++;
