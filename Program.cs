@@ -1,5 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Text.Json;
+using System.Runtime.InteropServices;
+using System.Text.Json.Serialization;
 
 const string appName = "Process Combinator v1.0.0";
 const string configPath = @"ProcessCombinator.json";
@@ -18,7 +20,8 @@ if (!File.Exists(configPath)) {
                         ProgramPath = @"C:\Windows\System32\notepad.exe",
                         Arguments = new List<string> {
                             @"C:\Users\user\Desktop\test.txt"
-                        }
+                        },
+                        KeepRunning = true
                     }
                 }
             }
@@ -51,6 +54,10 @@ foreach (var processData in config.Processes) {
     }
     cnt++;
 }
+Thread.Sleep(1000);
+// Hide the console window
+if (!config.LogToConsole) ShowWindow(GetConsoleWindow(), 0);
+
 
 while (true) {
     foreach (var processData in config.Processes) {
@@ -59,6 +66,11 @@ while (true) {
                 lastSeenTimes[processData.ProcessName] = DateTime.Now;
                 Log($"{processData.ProcessName} was started at {lastSeenTimes[processData.ProcessName]}");
                 foreach (var subProgramData in processData.SubPrograms) {
+                    var alreadyRunning = Process.GetProcessesByName(subProgramData.ProcessName).Length > 0;
+                    if (alreadyRunning) {
+                        Log($"{subProgramData.ProcessName} is already running");
+                        continue;
+                    }
                     Process.Start(new ProcessStartInfo(subProgramData.ProgramPath, subProgramData.Arguments));
                 }
             } else {
@@ -68,6 +80,7 @@ while (true) {
             if (lastSeenTimes.ContainsKey(processData.ProcessName) && DateTime.Now - lastSeenTimes[processData.ProcessName] > processData.GracePeriod) {
                 Log($"{processData.ProcessName} was closed at {DateTime.Now}");
                 foreach (var subProgramData in processData.SubPrograms) {
+                    if (subProgramData.KeepRunning) continue;
                     foreach (var proc in Process.GetProcessesByName(subProgramData.ProcessName)) {
                         Log($"Closing {subProgramData.ProcessName}");
                         proc.CloseMainWindow();
@@ -80,6 +93,12 @@ while (true) {
     Thread.Sleep(config.CheckInterval);
 }
 
+[DllImport("kernel32.dll")]
+static extern IntPtr GetConsoleWindow();
+
+[DllImport("user32.dll")]
+static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
 void Log(object obj) {
     var msg = $"[{DateTime.Now}] {obj}";
     Console.WriteLine(msg);
@@ -91,6 +110,7 @@ void Log(object obj) {
 public class MainConfig {
     public List<ProcessConfig> Processes { get; set; }
     public TimeSpan CheckInterval { get; set; } = TimeSpan.FromSeconds(1);
+    public bool LogToConsole { get; set; } = false;
     public bool LogToFile { get; set; } = false;
 }
 
@@ -102,7 +122,9 @@ public class ProcessConfig {
 }
 
 public class SubProgramData {
+    [JsonIgnore]
     public string ProcessName => Path.GetFileNameWithoutExtension(ProgramPath);
     public string ProgramPath { get; set; }
     public List<string> Arguments { get; set; }
+    public bool KeepRunning { get; set; } = false;
 }
