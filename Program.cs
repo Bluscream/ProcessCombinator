@@ -44,9 +44,9 @@ foreach (var processData in config.Processes) {
     Log($"[{cnt}] Grace Period: {processData.GracePeriod}");
     var subcnt = 1;
     foreach (var subProgramData in processData.SubPrograms) {
-        Log($"[{cnt}.{subcnt}]\tSub Program: {subProgramData.ProcessName}");
-        Log($"[{cnt}.{subcnt}]\tProgram Path: {subProgramData.ProgramPath}");
-        Log($"[{cnt}.{subcnt}]\tArguments: {string.Join(" ", subProgramData.Arguments)}");
+        Log($"[{cnt}.{subcnt}] Process: {subProgramData.ProcessName}");
+        Log($"[{cnt}.{subcnt}] Program Path: {subProgramData.ProgramPath}");
+        Log($"[{cnt}.{subcnt}] Arguments: {string.Join(" ", subProgramData.Arguments)}");
         subcnt++;
     }
     cnt++;
