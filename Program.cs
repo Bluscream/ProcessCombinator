@@ -42,19 +42,19 @@ var cnt = 1;
 foreach (var processData in config.Processes) {
     Log($"[{cnt}] Process: {processData.ProcessName}");
     Log($"[{cnt}] Grace Period: {processData.GracePeriod}");
+    var subcnt = 1;
     foreach (var subProgramData in processData.SubPrograms) {
-        Log($"[{cnt}]\tSub Program: {subProgramData.ProcessName}");
-        Log($"[{cnt}]\tProgram Path: {subProgramData.ProgramPath}");
-        Log($"[{cnt}]\tArguments: {string.Join(" ", subProgramData.Arguments)}");
+        Log($"[{cnt}.{subcnt}]\tSub Program: {subProgramData.ProcessName}");
+        Log($"[{cnt}.{subcnt}]\tProgram Path: {subProgramData.ProgramPath}");
+        Log($"[{cnt}.{subcnt}]\tArguments: {string.Join(" ", subProgramData.Arguments)}");
+        subcnt++;
     }
-    Log(string.Empty);
     cnt++;
 }
 
 while (true) {
     foreach (var processData in config.Processes) {
         if (Process.GetProcessesByName(processData.ProcessName).Length > 0) {
-            // if the process is not in the last seen times dictionary, add it and start its programs
             if (!lastSeenTimes.ContainsKey(processData.ProcessName)) {
                 lastSeenTimes[processData.ProcessName] = DateTime.Now;
                 Log($"{processData.ProcessName} was started at {lastSeenTimes[processData.ProcessName]}");
@@ -62,12 +62,9 @@ while (true) {
                     Process.Start(new ProcessStartInfo(subProgramData.ProgramPath, subProgramData.Arguments));
                 }
             } else {
-                // if the process is in the last seen times dictionary, update its last seen time
                 lastSeenTimes[processData.ProcessName] = DateTime.Now;
-                //Log($"{processData.ProcessName} is still running at {lastSeenTimes[processData.ProcessName]}");
             }
         } else {
-            // If the process is not running and more than 5 seconds have passed since the last seen time, close the related program
             if (lastSeenTimes.ContainsKey(processData.ProcessName) && DateTime.Now - lastSeenTimes[processData.ProcessName] > processData.GracePeriod) {
                 Log($"{processData.ProcessName} was closed at {DateTime.Now}");
                 foreach (var subProgramData in processData.SubPrograms) {
@@ -76,7 +73,6 @@ while (true) {
                         proc.CloseMainWindow();
                     }
                 }
-                // Remove the process from the last seen times dictionary
                 lastSeenTimes.Remove(processData.ProcessName);
             }
         }
