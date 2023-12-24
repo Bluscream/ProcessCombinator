@@ -100,7 +100,19 @@ while (true) {
                     if (subProgramData.KeepRunning) continue;
                     foreach (var proc in Process.GetProcessesByName(subProgramData.ProcessName)) {
                         Log($"Closing {subProgramData.ProcessName}");
-                        proc.CloseMainWindow();
+                        new Thread(() => {
+                            proc.CloseMainWindow();
+                            Thread.Sleep(500);
+                            if (IsProcessRunning(subProgramData.ProcessName)) {
+                                Log($"{subProgramData.ProcessName} did not close main window in time, closing process!");
+                                proc.Close();
+                                Thread.Sleep(250);
+                                if (IsProcessRunning(subProgramData.ProcessName)) {
+                                    Log($"{subProgramData.ProcessName} did not close in time, killing process!");
+                                    proc.Kill();
+                                }
+                            }
+                        });
                     }
                 }
                 lastSeenTimes.Remove(processData.ProcessName);
