@@ -62,17 +62,31 @@ if (!config.LogToConsole) ShowWindow(GetConsoleWindow(), 0);
 
 while (true) {
     foreach (var processData in config.Processes) {
-        if (Process.GetProcessesByName(processData.ProcessName).Length > 0) {
+        if (IsProcessRunning(processData.ProcessName)) {
             if (!lastSeenTimes.ContainsKey(processData.ProcessName)) {
                 lastSeenTimes[processData.ProcessName] = DateTime.Now;
                 Log($"{processData.ProcessName} was started at {lastSeenTimes[processData.ProcessName]}");
                 foreach (var subProgramData in processData.SubPrograms) {
-                    var alreadyRunning = Process.GetProcessesByName(subProgramData.ProcessName).Length > 0;
-                    if (alreadyRunning) {
+                    if (IsProcessRunning(subProgramData.ProcessName)) {
                         Log($"{subProgramData.ProcessName} is already running");
                         continue;
                     }
-                    Process.Start(new ProcessStartInfo(subProgramData.ProgramPath, subProgramData.Arguments));
+                    new Thread(() => {
+                        if (subProgramData.Delay.HasValue) {
+                            Log($"Waiting {subProgramData.Delay.Value.TotalSeconds} seconds before starting {subProgramData.ProcessName}");
+                            Thread.Sleep(subProgramData.Delay.Value);
+                            if (!IsProcessRunning(processData.ProcessName)) {
+                                Log($"{processData.ProcessName} was closed while waiting for {subProgramData.ProcessName} to start");
+                                return;
+                            }
+                            if (IsProcessRunning(subProgramData.ProcessName)) {
+                                Log($"{subProgramData.ProcessName} is already running after delay");
+                                return;
+                            }
+                        }
+                        Log($"Starting {subProgramData.ProcessName}");
+                        StartProcess(subProgramData.ProgramPath, subProgramData.Arguments);
+                    }).Start();
                 }
             } else {
                 lastSeenTimes[processData.ProcessName] = DateTime.Now;
@@ -108,6 +122,14 @@ void Log(object obj) {
     }
 }
 
+void StartProcess(string path, List<string> args) {
+    Process.Start(new ProcessStartInfo(path, string.Join(" ", args)));
+}
+
+bool IsProcessRunning(string name) {
+    return Process.GetProcessesByName(name).Length > 0;
+}
+
 public class MainConfig {
     public List<ProcessConfig> Processes { get; set; }
     public TimeSpan CheckInterval { get; set; } = TimeSpan.FromSeconds(1);
@@ -126,6 +148,7 @@ public class SubProgramData {
     [JsonIgnore]
     public string ProcessName => Path.GetFileNameWithoutExtension(ProgramPath);
     public string ProgramPath { get; set; }
-    public List<string> Arguments { get; set; }
+    public List<string> Arguments { get; set; } = new List<string>();
     public bool KeepRunning { get; set; } = false;
+    public TimeSpan? Delay { get; set; }
 }
