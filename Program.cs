@@ -103,33 +103,35 @@ while (true) {
                 foreach (var subProgramData in processData.SubPrograms) {
                     if (subProgramData.KeepRunning) continue;
                     foreach (var proc in Process.GetProcessesByName(subProgramData.ProcessName)) {
-                        try {
-                            Log($"Closing {subProgramData.ProcessName}");
-                            var t = Task.Run(() => { proc.CloseMainWindow(); });
-                            if (t.Wait(500)) {
-                                if (IsProcessRunning(subProgramData.ProcessName)) {
-                                    Log($"{subProgramData.ProcessName} did not close main window in time, closing process!");
-                                    t = Task.Run(() => { proc.Close(); });
-                                    if (t.Wait(250)) {
-                                        if (IsProcessRunning(subProgramData.ProcessName)) {
-                                            Log($"{subProgramData.ProcessName} did not close in time, killing process!");
-                                            t = Task.Run(() => { proc.Kill(); });
-                                            if (t.Wait(250)) {
-                                                if (IsProcessRunning(subProgramData.ProcessName)) {
-                                                    Log($"{subProgramData.ProcessName} did not die in time, ignoring!");
-                                                    return;
+                        new Thread(() => {
+                            try {
+                                Log($"Closing {subProgramData.ProcessName}");
+                                var t = Task.Run(() => { proc.CloseMainWindow(); });
+                                if (t.Wait(500)) {
+                                    if (IsProcessRunning(subProgramData.ProcessName)) {
+                                        Log($"{subProgramData.ProcessName} did not close main window in time, closing process!");
+                                        t = Task.Run(() => { proc.Close(); });
+                                        if (t.Wait(250)) {
+                                            if (IsProcessRunning(subProgramData.ProcessName)) {
+                                                Log($"{subProgramData.ProcessName} did not close in time, killing process!");
+                                                t = Task.Run(() => { proc.Kill(); });
+                                                if (t.Wait(250)) {
+                                                    if (IsProcessRunning(subProgramData.ProcessName)) {
+                                                        Log($"{subProgramData.ProcessName} did not die in time, ignoring!");
+                                                        return;
+                                                    }
                                                 }
                                             }
                                         }
                                     }
+                                } else {
+                                    Log($"Closed {subProgramData.ProcessName}");
                                 }
-                            } else {
-                                Log($"Closed {subProgramData.ProcessName}");
+                            } catch (Exception ex) {
+                                Log(ex.Message);
+                                StartProcess("taskkill", new() { "/f", "/im", subProgramData.ParsedPath.Name }, noWindow: true);
                             }
-                        } catch (Exception ex) {
-                            Log(ex.Message);
-                            StartProcess("taskkill", new() { "/f", "/im", subProgramData.ParsedPath.Name }, true);
-                        }
+                        });
                     }
                 }
                 lastSeenTimes.Remove(processData.ProcessName);
@@ -152,7 +154,7 @@ void Log(object obj) {
         File.AppendAllText("ProcessCombinator.log", msg + "\n");
     }
 }
-void StartProcessFromFile(FileInfo path, List<string> args, string? workDir = null, bool noWindow = false, bool shellExecute = false) => StartProcess(path.FullName, args, workDir.FullName, noWindow, shellExecute);
+void StartProcessFromFile(FileInfo path, List<string> args, string? workDir = null, bool noWindow = false, bool shellExecute = false) => StartProcess(path.FullName, args, workDir, noWindow, shellExecute);
 void StartProcess(string path, List<string> args, string? workDir = null, bool noWindow = false, bool shellExecute = false) {
     var proc = new ProcessStartInfo(path, string.Join(" ", args)) { WorkingDirectory = workDir, UseShellExecute = shellExecute, CreateNoWindow = noWindow };
     Log($"Running \"{path}\" {proc.Arguments}");
