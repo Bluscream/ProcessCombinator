@@ -21,7 +21,8 @@ if (!File.Exists(configPath)) {
                         Arguments = new List<string> {
                             @"C:\Users\user\Desktop\test.txt"
                         },
-                        KeepRunning = true
+                        KeepRunning = true,
+                        Delay = TimeSpan.FromSeconds(1)
                     }
                 }
             }
@@ -48,9 +49,10 @@ foreach (var processData in config.Processes) {
     var subcnt = 1;
     foreach (var subProgramData in processData.SubPrograms) {
         Log($"[{cnt}.{subcnt}] Process: {subProgramData.ProcessName}");
-        Log($"[{cnt}.{subcnt}] Program Path: {subProgramData.ProgramPath}");
+        Log($"[{cnt}.{subcnt}] Program Path: \"{subProgramData.ProgramPath}\" ({(subProgramData.ParsedPath.Exists ? "valid" : "invalid")})");
         Log($"[{cnt}.{subcnt}] Arguments: {string.Join(" ", subProgramData.Arguments)}");
         Log($"[{cnt}.{subcnt}] Keep Running: {subProgramData.KeepRunning}");
+        Log($"[{cnt}.{subcnt}] Delay: {subProgramData.Delay}");
         subcnt++;
     }
     cnt++;
@@ -72,7 +74,7 @@ while (true) {
                         continue;
                     }
                     new Thread(() => {
-                        if (subProgramData.Delay.HasValue) {
+                        if (subProgramData.Delay.HasValue && subProgramData.Delay.Value.TotalMilliseconds > 0) {
                             Log($"Waiting {subProgramData.Delay.Value.TotalSeconds} seconds before starting {subProgramData.ProcessName}");
                             Thread.Sleep(subProgramData.Delay.Value);
                             if (!IsProcessRunning(processData.ProcessName)) {
@@ -85,7 +87,7 @@ while (true) {
                             }
                         }
                         Log($"Starting {subProgramData.ProcessName}");
-                        StartProcess(subProgramData.ProgramPath, subProgramData.Arguments);
+                        StartProcessFromFile(subProgramData.ParsedPath, subProgramData.Arguments);
                     }).Start();
                 }
             } else {
@@ -121,7 +123,7 @@ void Log(object obj) {
         File.AppendAllText("ProcessCombinator.log", msg + "\n");
     }
 }
-
+void StartProcessFromFile(FileInfo path, List<string> args) => StartProcess(path.FullName, args);
 void StartProcess(string path, List<string> args) {
     Process.Start(new ProcessStartInfo(path, string.Join(" ", args)));
 }
@@ -148,6 +150,8 @@ public class SubProgramData {
     [JsonIgnore]
     public string ProcessName => Path.GetFileNameWithoutExtension(ProgramPath);
     public string ProgramPath { get; set; }
+    [JsonIgnore]
+    public FileInfo ParsedPath => new FileInfo(Environment.ExpandEnvironmentVariables(ProgramPath));
     public List<string> Arguments { get; set; } = new List<string>();
     public bool KeepRunning { get; set; } = false;
     public TimeSpan? Delay { get; set; }
