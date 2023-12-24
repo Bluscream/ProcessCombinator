@@ -18,11 +18,14 @@ if (!File.Exists(configPath)) {
                 SubPrograms = new List<SubProgramData> {
                     new SubProgramData {
                         ProgramPath = @"C:\Windows\System32\notepad.exe",
+                        WorkingDirectory = @"C:\Windows\System32\",
                         Arguments = new List<string> {
                             @"C:\Users\user\Desktop\test.txt"
                         },
                         KeepRunning = true,
-                        Delay = TimeSpan.FromSeconds(1)
+                        Delay = TimeSpan.FromSeconds(1),
+                        UseShellExecute = true,
+                        CreateNoWindow = true,
                     }
                 }
             }
@@ -87,7 +90,8 @@ while (true) {
                             }
                         }
                         Log($"Starting {subProgramData.ProcessName}");
-                        StartProcessFromFile(subProgramData.ParsedPath, subProgramData.Arguments, subProgramData.CreateNoWindow, subProgramData.UseShellExecute);
+                        var workDir = subProgramData.WorkingDirectory ?? subProgramData.ParsedPath.Directory.FullName;
+                        StartProcessFromFile(path: subProgramData.ParsedPath, args: subProgramData.Arguments, workDir: workDir, noWindow: subProgramData.CreateNoWindow, shellExecute: subProgramData.UseShellExecute);
                     }).Start();
                 }
             } else {
@@ -148,9 +152,9 @@ void Log(object obj) {
         File.AppendAllText("ProcessCombinator.log", msg + "\n");
     }
 }
-void StartProcessFromFile(FileInfo path, List<string> args, bool noWindow = false, bool shellExecute = false) => StartProcess(path.FullName, args);
-void StartProcess(string path, List<string> args, bool noWindow = false, bool shellExecute = false) {
-    var proc = new ProcessStartInfo(path, string.Join(" ", args)) { UseShellExecute = shellExecute, CreateNoWindow = noWindow };
+void StartProcessFromFile(FileInfo path, List<string> args, string? workDir = null, bool noWindow = false, bool shellExecute = false) => StartProcess(path.FullName, args, workDir.FullName, noWindow, shellExecute);
+void StartProcess(string path, List<string> args, string? workDir = null, bool noWindow = false, bool shellExecute = false) {
+    var proc = new ProcessStartInfo(path, string.Join(" ", args)) { WorkingDirectory = workDir, UseShellExecute = shellExecute, CreateNoWindow = noWindow };
     Log($"Running \"{path}\" {proc.Arguments}");
     Process.Start(proc);
 }
@@ -177,6 +181,7 @@ public class SubProgramData {
     [JsonIgnore]
     public string ProcessName => Path.GetFileNameWithoutExtension(ProgramPath);
     public string ProgramPath { get; set; }
+    public string? WorkingDirectory { get; set; }
     [JsonIgnore]
     public FileInfo ParsedPath => new FileInfo(Environment.ExpandEnvironmentVariables(ProgramPath));
     public List<string> Arguments { get; set; } = new List<string>();
