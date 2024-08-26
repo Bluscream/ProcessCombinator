@@ -26,6 +26,7 @@ if (!File.Exists(configPath)) {
                         Delay = TimeSpan.FromSeconds(1),
                         UseShellExecute = true,
                         CreateNoWindow = true,
+                        AlwaysRun = true
                     }
                 }
             }
@@ -41,6 +42,7 @@ if (!File.Exists(configPath)) {
 
 string json = File.ReadAllText(configPath);
 MainConfig config = JsonSerializer.Deserialize<MainConfig>(json);
+if (config is null) throw new ArgumentNullException("config");
 Dictionary<string, DateTime> lastSeenTimes = new Dictionary<string, DateTime>();
 
 Log($"Found {config.Processes.Count} processes. (Interval: {config.CheckInterval})");
@@ -55,6 +57,7 @@ foreach (var processData in config.Processes) {
         Log($"[{cnt}.{subcnt}] Program Path: \"{subProgramData.ProgramPath}\" ({(subProgramData.ParsedPath.Exists ? "valid" : "invalid")})");
         Log($"[{cnt}.{subcnt}] Arguments: {string.Join(" ", subProgramData.Arguments)}");
         Log($"[{cnt}.{subcnt}] Keep Running: {subProgramData.KeepRunning}");
+        Log($"[{cnt}.{subcnt}] Always Run: {subProgramData.AlwaysRun}");
         Log($"[{cnt}.{subcnt}] Delay: {subProgramData.Delay}");
         subcnt++;
     }
@@ -72,8 +75,8 @@ while (true) {
                 lastSeenTimes[processData.ProcessName] = DateTime.Now;
                 Log($"{processData.ProcessName} was started at {lastSeenTimes[processData.ProcessName]}");
                 foreach (var subProgramData in processData.SubPrograms) {
-                    if (IsProcessRunning(subProgramData.ProcessName)) {
-                        Log($"{subProgramData.ProcessName} is already running");
+                    if (IsProcessRunning(subProgramData.ProcessName) && !subProgramData.AlwaysRun) {
+                        Log($"{subProgramData.ProcessName} is already running, use the 'AlwaysRun' config key if this is intentended!");
                         continue;
                     }
                     new Thread(() => {
@@ -90,7 +93,7 @@ while (true) {
                             }
                         }
                         Log($"Starting {subProgramData.ProcessName}");
-                        var workDir = subProgramData.WorkingDirectory ?? subProgramData.ParsedPath.Directory.FullName;
+                        var workDir = subProgramData.WorkingDirectory ?? subProgramData.ParsedPath?.Directory?.FullName ?? null;
                         StartProcessFromFile(path: subProgramData.ParsedPath, args: subProgramData.Arguments, workDir: workDir, noWindow: subProgramData.CreateNoWindow, shellExecute: subProgramData.UseShellExecute);
                     }).Start();
                 }
@@ -190,6 +193,7 @@ public class SubProgramData {
     public bool KeepRunning { get; set; } = false;
     public bool UseShellExecute { get; set; } = false;
     public bool CreateNoWindow { get; set; } = false;
+    public bool AlwaysRun { get; set; } = false;
     public TimeSpan? Delay { get; set; }
 }
 
