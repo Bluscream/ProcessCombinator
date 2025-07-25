@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-const string appName = "Process Combinator v1.0.0";
+const string appName = "Process Combinator";
 const string configPath = @"ProcessCombinator.json";
 
 Console.Title = appName;
@@ -89,150 +89,164 @@ else
 
 while (true)
 {
-    foreach (var processData in config.Processes)
+    try
     {
-        if (IsProcessRunning(processData.ProcessName))
+        foreach (var processData in config.Processes)
         {
-            if (!lastSeenTimes.ContainsKey(processData.ProcessName))
+            if (IsProcessRunning(processData.ProcessName))
             {
-                lastSeenTimes[processData.ProcessName] = DateTime.Now;
-                Log(
-                    $"{processData.ProcessName} was started at {lastSeenTimes[processData.ProcessName]}"
-                );
-                foreach (var subProgramData in processData.SubPrograms)
+                if (!lastSeenTimes.ContainsKey(processData.ProcessName))
                 {
-                    if (IsProcessRunning(subProgramData.ProcessName) && !subProgramData.AlwaysRun)
+                    lastSeenTimes[processData.ProcessName] = DateTime.Now;
+                    Log(
+                        $"{processData.ProcessName} was started at {lastSeenTimes[processData.ProcessName]}"
+                    );
+                    foreach (var subProgramData in processData.SubPrograms)
                     {
-                        Log(
-                            $"{subProgramData.ProcessName} is already running, use the 'AlwaysRun' config key if this is intentended!"
-                        );
-                        continue;
-                    }
-                    new Thread(() =>
-                    {
-                        if (
-                            subProgramData.Delay.HasValue
-                            && subProgramData.Delay.Value.TotalMilliseconds > 0
-                        )
+                        if (IsProcessRunning(subProgramData.ProcessName) && !subProgramData.AlwaysRun)
                         {
                             Log(
-                                $"Waiting {subProgramData.Delay.Value.TotalSeconds} seconds before starting {subProgramData.ProcessName}"
+                                $"{subProgramData.ProcessName} is already running, use the 'AlwaysRun' config key if this is intentended!"
                             );
-                            Thread.Sleep(subProgramData.Delay.Value);
-                            if (!IsProcessRunning(processData.ProcessName))
-                            {
-                                Log(
-                                    $"{processData.ProcessName} was closed while waiting for {subProgramData.ProcessName} to start"
-                                );
-                                return;
-                            }
-                            if (IsProcessRunning(subProgramData.ProcessName))
-                            {
-                                Log($"{subProgramData.ProcessName} is already running after delay");
-                                return;
-                            }
+                            continue;
                         }
-                        Log($"Starting {subProgramData.ProcessName}");
-                        var workDir =
-                            subProgramData.WorkingDirectory
-                            ?? subProgramData.ParsedPath?.Directory?.FullName
-                            ?? null;
-                        StartProcessFromFile(
-                            path: subProgramData.ParsedPath,
-                            args: subProgramData.Arguments,
-                            workDir: workDir,
-                            noWindow: subProgramData.CreateNoWindow,
-                            shellExecute: subProgramData.UseShellExecute
-                        );
-                    }).Start();
-                }
-            }
-            else
-            {
-                lastSeenTimes[processData.ProcessName] = DateTime.Now;
-            }
-        }
-        else
-        {
-            if (
-                lastSeenTimes.ContainsKey(processData.ProcessName)
-                && DateTime.Now - lastSeenTimes[processData.ProcessName] > processData.GracePeriod
-            )
-            {
-                Log($"{processData.ProcessName} was closed at {DateTime.Now}");
-                foreach (var subProgramData in processData.SubPrograms)
-                {
-                    if (subProgramData.KeepRunning)
-                        continue;
-                    foreach (var proc in Process.GetProcessesByName(subProgramData.ProcessName))
-                    {
                         new Thread(() =>
                         {
                             try
                             {
-                                Log($"Closing {subProgramData.ProcessName}");
-                                var t = Task.Run(() =>
+                                if (
+                                    subProgramData.Delay.HasValue
+                                    && subProgramData.Delay.Value.TotalMilliseconds > 0
+                                )
                                 {
-                                    proc.CloseMainWindow();
-                                });
-                                if (t.Wait(500))
-                                {
-                                    if (IsProcessRunning(subProgramData.ProcessName))
+                                    Log(
+                                        $"Waiting {subProgramData.Delay.Value.TotalSeconds} seconds before starting {subProgramData.ProcessName}"
+                                    );
+                                    Thread.Sleep(subProgramData.Delay.Value);
+                                    if (!IsProcessRunning(processData.ProcessName))
                                     {
                                         Log(
-                                            $"{subProgramData.ProcessName} did not close main window in time, closing process!"
+                                            $"{processData.ProcessName} was closed while waiting for {subProgramData.ProcessName} to start"
                                         );
-                                        t = Task.Run(() =>
+                                        return;
+                                    }
+                                    if (IsProcessRunning(subProgramData.ProcessName))
+                                    {
+                                        Log($"{subProgramData.ProcessName} is already running after delay");
+                                        return;
+                                    }
+                                }
+                                Log($"Starting {subProgramData.ProcessName}");
+                                var workDir =
+                                    subProgramData.WorkingDirectory
+                                    ?? subProgramData.ParsedPath?.Directory?.FullName
+                                    ?? null;
+                                StartProcessFromFile(
+                                    path: subProgramData.ParsedPath,
+                                    args: subProgramData.Arguments,
+                                    workDir: workDir,
+                                    noWindow: subProgramData.CreateNoWindow,
+                                    shellExecute: subProgramData.UseShellExecute
+                                );
+                            }
+                            catch (Exception ex)
+                            {
+                                Log($"Exception in subprogram thread: {ex}");
+                            }
+                        }).Start();
+                    }
+                }
+                else
+                {
+                    lastSeenTimes[processData.ProcessName] = DateTime.Now;
+                }
+            }
+            else
+            {
+                if (
+                    lastSeenTimes.ContainsKey(processData.ProcessName)
+                    && DateTime.Now - lastSeenTimes[processData.ProcessName] > processData.GracePeriod
+                )
+                {
+                    Log($"{processData.ProcessName} was closed at {DateTime.Now}");
+                    foreach (var subProgramData in processData.SubPrograms)
+                    {
+                        if (subProgramData.KeepRunning)
+                            continue;
+                        foreach (var proc in Process.GetProcessesByName(subProgramData.ProcessName))
+                        {
+                            new Thread(() =>
+                            {
+                                try
+                                {
+                                    Log($"Closing {subProgramData.ProcessName}");
+                                    var t = Task.Run(() =>
+                                    {
+                                        proc.CloseMainWindow();
+                                    });
+                                    if (t.Wait(500))
+                                    {
+                                        if (IsProcessRunning(subProgramData.ProcessName))
                                         {
-                                            proc.Close();
-                                        });
-                                        if (t.Wait(250))
-                                        {
-                                            if (IsProcessRunning(subProgramData.ProcessName))
+                                            Log(
+                                                $"{subProgramData.ProcessName} did not close main window in time, closing process!"
+                                            );
+                                            t = Task.Run(() =>
                                             {
-                                                Log(
-                                                    $"{subProgramData.ProcessName} did not close in time, killing process!"
-                                                );
-                                                t = Task.Run(() =>
+                                                proc.Close();
+                                            });
+                                            if (t.Wait(250))
+                                            {
+                                                if (IsProcessRunning(subProgramData.ProcessName))
                                                 {
-                                                    proc.Kill();
-                                                });
-                                                if (t.Wait(250))
-                                                {
-                                                    if (
-                                                        IsProcessRunning(subProgramData.ProcessName)
-                                                    )
+                                                    Log(
+                                                        $"{subProgramData.ProcessName} did not close in time, killing process!"
+                                                    );
+                                                    t = Task.Run(() =>
                                                     {
-                                                        Log(
-                                                            $"{subProgramData.ProcessName} did not die in time, ignoring!"
-                                                        );
-                                                        return;
+                                                        proc.Kill();
+                                                    });
+                                                    if (t.Wait(250))
+                                                    {
+                                                        if (
+                                                            IsProcessRunning(subProgramData.ProcessName)
+                                                        )
+                                                        {
+                                                            Log(
+                                                                $"{subProgramData.ProcessName} did not die in time, ignoring!"
+                                                            );
+                                                            return;
+                                                        }
                                                     }
                                                 }
                                             }
                                         }
                                     }
+                                    else
+                                    {
+                                        Log($"Closed {subProgramData.ProcessName}");
+                                    }
                                 }
-                                else
+                                catch (Exception ex)
                                 {
-                                    Log($"Closed {subProgramData.ProcessName}");
+                                    Log(ex.Message);
+                                    StartProcess(
+                                        "taskkill",
+                                        new() { "/f", "/im", subProgramData.ParsedPath.Name },
+                                        noWindow: true
+                                    );
                                 }
-                            }
-                            catch (Exception ex)
-                            {
-                                Log(ex.Message);
-                                StartProcess(
-                                    "taskkill",
-                                    new() { "/f", "/im", subProgramData.ParsedPath.Name },
-                                    noWindow: true
-                                );
-                            }
-                        });
+                            }).Start();
+                        }
                     }
+                    lastSeenTimes.Remove(processData.ProcessName);
                 }
-                lastSeenTimes.Remove(processData.ProcessName);
             }
         }
+    }
+    catch (Exception ex)
+    {
+        Log($"Exception in main loop: {ex}");
     }
     Thread.Sleep(config.CheckInterval);
 }
