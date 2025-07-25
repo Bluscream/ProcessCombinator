@@ -48,21 +48,36 @@ if (!File.Exists(configPath))
     return;
 }
 
-string json = File.ReadAllText(configPath);
-MainConfig config = JsonSerializer.Deserialize<MainConfig>(json);
-if (config is null)
-    throw new ArgumentNullException("config");
-
-// Remove .exe extensions from process names and show warnings
-foreach (var processData in config.Processes)
+MainConfig config;
+try
 {
-    if (processData.ProcessName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+    string json = File.ReadAllText(configPath);
+    config = JsonSerializer.Deserialize<MainConfig>(json);
+    if (config is null)
+        throw new ArgumentNullException("config");
+
+    // Remove .exe extensions from process names and show warnings
+    foreach (var processData in config.Processes)
     {
-        Log(
-            $"Warning: Process name '{processData.ProcessName}' ends with '.exe'. Removing extension for process detection."
-        );
-        processData.ProcessName = processData.ProcessName.TrimEnd(".exe".ToCharArray());
+        if (processData.ProcessName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            Log(
+                $"Warning: Process name '{processData.ProcessName}' ends with '.exe'. Removing extension for process detection."
+            );
+            processData.ProcessName = processData.ProcessName.TrimEnd(".exe".ToCharArray());
+        }
     }
+}
+catch (Exception ex)
+{
+    // Unhide console and show error
+    ShowWindow(GetConsoleWindow(), 1);
+    Console.WriteLine("Error loading configuration");
+    Console.WriteLine(Path.GetFullPath(configPath));
+    Console.WriteLine(ex.Message);
+    Console.WriteLine("\nPress any key to exit...");
+    Console.ReadKey();
+    return;
 }
 
 Dictionary<string, DateTime> lastSeenTimes = new Dictionary<string, DateTime>();
@@ -264,7 +279,10 @@ while (true)
     }
     catch (Exception ex)
     {
+        ShowWindow(GetConsoleWindow(), 1);
         Log($"Exception in main loop: {ex}");
+        // Console.WriteLine("\nPress any key to continue...");
+        // Console.ReadKey();
     }
     Thread.Sleep(config.CheckInterval);
 }
