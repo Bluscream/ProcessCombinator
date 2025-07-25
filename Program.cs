@@ -35,6 +35,7 @@ if (!File.Exists(configPath))
                 },
             },
         },
+        CaseInsensitive = false,
     };
     File.WriteAllText(
         configPath,
@@ -51,6 +52,19 @@ string json = File.ReadAllText(configPath);
 MainConfig config = JsonSerializer.Deserialize<MainConfig>(json);
 if (config is null)
     throw new ArgumentNullException("config");
+
+// Remove .exe extensions from process names and show warnings
+foreach (var processData in config.Processes)
+{
+    if (processData.ProcessName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+    {
+        Log(
+            $"Warning: Process name '{processData.ProcessName}' ends with '.exe'. Removing extension for process detection."
+        );
+        processData.ProcessName = processData.ProcessName.TrimEnd(".exe".ToCharArray());
+    }
+}
+
 Dictionary<string, DateTime> lastSeenTimes = new Dictionary<string, DateTime>();
 
 Log($"Found {config.Processes.Count} processes. (Interval: {config.CheckInterval})");
@@ -82,10 +96,6 @@ if (!config.LogToConsole)
 {
     ShowWindow(GetConsoleWindow(), 0);
 }
-else
-{
-    ShowWindow(GetConsoleWindow(), 1);
-}
 
 while (true)
 {
@@ -103,7 +113,10 @@ while (true)
                     );
                     foreach (var subProgramData in processData.SubPrograms)
                     {
-                        if (IsProcessRunning(subProgramData.ProcessName) && !subProgramData.AlwaysRun)
+                        if (
+                            IsProcessRunning(subProgramData.ProcessName)
+                            && !subProgramData.AlwaysRun
+                        )
                         {
                             Log(
                                 $"{subProgramData.ProcessName} is already running, use the 'AlwaysRun' config key if this is intentended!"
@@ -132,7 +145,9 @@ while (true)
                                     }
                                     if (IsProcessRunning(subProgramData.ProcessName))
                                     {
-                                        Log($"{subProgramData.ProcessName} is already running after delay");
+                                        Log(
+                                            $"{subProgramData.ProcessName} is already running after delay"
+                                        );
                                         return;
                                     }
                                 }
@@ -165,7 +180,8 @@ while (true)
             {
                 if (
                     lastSeenTimes.ContainsKey(processData.ProcessName)
-                    && DateTime.Now - lastSeenTimes[processData.ProcessName] > processData.GracePeriod
+                    && DateTime.Now - lastSeenTimes[processData.ProcessName]
+                        > processData.GracePeriod
                 )
                 {
                     Log($"{processData.ProcessName} was closed at {DateTime.Now}");
@@ -209,7 +225,9 @@ while (true)
                                                     if (t.Wait(250))
                                                     {
                                                         if (
-                                                            IsProcessRunning(subProgramData.ProcessName)
+                                                            IsProcessRunning(
+                                                                subProgramData.ProcessName
+                                                            )
                                                         )
                                                         {
                                                             Log(
@@ -293,6 +311,12 @@ void StartProcess(
 
 bool IsProcessRunning(string name)
 {
+    if (config.CaseInsensitive)
+    {
+        return Process
+            .GetProcesses()
+            .Any(p => string.Equals(p.ProcessName, name, StringComparison.OrdinalIgnoreCase));
+    }
     return Process.GetProcessesByName(name).Length > 0;
 }
 
@@ -302,6 +326,7 @@ public class MainConfig
     public TimeSpan CheckInterval { get; set; } = TimeSpan.FromSeconds(1);
     public bool LogToConsole { get; set; } = false;
     public bool LogToFile { get; set; } = false;
+    public bool CaseInsensitive { get; set; } = false;
 }
 
 public class ProcessConfig
