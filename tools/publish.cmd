@@ -1,0 +1,1 @@
+pwsh -NoProfile -ExecutionPolicy Bypass -File D:\Scripts\build.ps1 -Git -Github -Publish -Repo "ProcessCombinator"
