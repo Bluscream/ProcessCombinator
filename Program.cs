@@ -52,9 +52,7 @@ MainConfig config;
 try
 {
     string json = File.ReadAllText(configPath);
-    config = JsonSerializer.Deserialize<MainConfig>(json);
-    if (config is null)
-        throw new ArgumentNullException("config");
+    config = JsonSerializer.Deserialize<MainConfig>(json) ?? throw new ArgumentNullException("config");
 
     // Remove .exe extensions from process names and show warnings
     foreach (var processData in config.Processes)
@@ -85,25 +83,29 @@ Dictionary<string, DateTime> lastSeenTimes = new Dictionary<string, DateTime>();
 Log($"Found {config.Processes.Count} processes. (Interval: {config.CheckInterval})");
 
 var cnt = 1;
-foreach (var processData in config.Processes)
-{
-    Log($"[{cnt}] Process: {processData.ProcessName}");
-    Log($"[{cnt}] Grace Period: {processData.GracePeriod}");
-    var subcnt = 1;
-    foreach (var subProgramData in processData.SubPrograms)
+    foreach (var processData in config.Processes)
     {
-        Log($"[{cnt}.{subcnt}] Process: {subProgramData.ProcessName}");
-        Log(
-            $"[{cnt}.{subcnt}] Program Path: \"{subProgramData.ProgramPath}\" ({(subProgramData.ParsedPath.Exists ? "valid" : "invalid")})"
-        );
-        Log($"[{cnt}.{subcnt}] Arguments: {string.Join(" ", subProgramData.Arguments)}");
-        Log($"[{cnt}.{subcnt}] Keep Running: {subProgramData.KeepRunning}");
-        Log($"[{cnt}.{subcnt}] Always Run: {subProgramData.AlwaysRun}");
-        Log($"[{cnt}.{subcnt}] Delay: {subProgramData.Delay}");
-        subcnt++;
+        Log($"[{cnt}] Process: {processData.ProcessName} (Enabled: {processData.Enabled})");
+        Log($"[{cnt}] Grace Period: {processData.GracePeriod}");
+        var subcnt = 1;
+        foreach (var subProgramData in processData.SubPrograms)
+        {
+            Log($"[{cnt}.{subcnt}] Process: {subProgramData.ProcessName} (Enabled: {subProgramData.Enabled})");
+            Log(
+                $"[{cnt}.{subcnt}] Program Path: \"{subProgramData.ProgramPath}\" ({(subProgramData.ParsedPath.Exists ? "valid" : "invalid")})"
+            );
+            Log($"[{cnt}.{subcnt}] Arguments: {string.Join(" ", subProgramData.Arguments)}");
+            Log($"[{cnt}.{subcnt}] Keep Running: {subProgramData.KeepRunning}");
+            Log($"[{cnt}.{subcnt}] Always Run: {subProgramData.AlwaysRun}");
+            Log($"[{cnt}.{subcnt}] Delay: {subProgramData.Delay}");
+            if (subProgramData.EnvironmentVariables != null && subProgramData.EnvironmentVariables.Count > 0)
+            {
+                Log($"[{cnt}.{subcnt}] Environment Variables: {string.Join(", ", subProgramData.EnvironmentVariables.Select(kv => $"{kv.Key}={kv.Value}"))}");
+            }
+            subcnt++;
+        }
+        cnt++;
     }
-    cnt++;
-}
 Thread.Sleep(1000);
 
 // Hide the console window
@@ -118,6 +120,8 @@ while (true)
     {
         foreach (var processData in config.Processes)
         {
+            if (!processData.Enabled)
+                continue;
             if (IsProcessRunning(processData.ProcessName))
             {
                 if (!lastSeenTimes.ContainsKey(processData.ProcessName))
@@ -128,6 +132,8 @@ while (true)
                     );
                     foreach (var subProgramData in processData.SubPrograms)
                     {
+                        if (!subProgramData.Enabled)
+                            continue;
                         if (
                             IsProcessRunning(subProgramData.ProcessName)
                             && !subProgramData.AlwaysRun
@@ -169,14 +175,15 @@ while (true)
                                 Log($"Starting {subProgramData.ProcessName}");
                                 var workDir =
                                     subProgramData.WorkingDirectory
-                                    ?? subProgramData.ParsedPath?.Directory?.FullName
+                                    ?? subProgramData.ParsedPath.Directory?.FullName
                                     ?? null;
                                 StartProcessFromFile(
                                     path: subProgramData.ParsedPath,
                                     args: subProgramData.Arguments,
                                     workDir: workDir,
                                     noWindow: subProgramData.CreateNoWindow,
-                                    shellExecute: subProgramData.UseShellExecute
+                                    shellExecute: subProgramData.UseShellExecute,
+                                    environmentVariables: subProgramData.EnvironmentVariables
                                 );
                             }
                             catch (Exception ex)
@@ -307,14 +314,16 @@ void StartProcessFromFile(
     List<string> args,
     string? workDir = null,
     bool noWindow = false,
-    bool shellExecute = false
-) => StartProcess(path.FullName, args, workDir, noWindow, shellExecute);
+    bool shellExecute = false,
+    Dictionary<string, string>? environmentVariables = null
+) => StartProcess(path.FullName, args, workDir, noWindow, shellExecute, environmentVariables);
 void StartProcess(
     string path,
     List<string> args,
     string? workDir = null,
     bool noWindow = false,
-    bool shellExecute = false
+    bool shellExecute = false,
+    Dictionary<string, string>? environmentVariables = null
 )
 {
     var proc = new ProcessStartInfo(path, string.Join(" ", args))
@@ -323,6 +332,15 @@ void StartProcess(
         UseShellExecute = shellExecute,
         CreateNoWindow = noWindow,
     };
+    
+    if (environmentVariables != null)
+    {
+        foreach (var envVar in environmentVariables)
+        {
+            proc.EnvironmentVariables[envVar.Key] = envVar.Value;
+        }
+    }
+    
     Log($"Running \"{path}\" {proc.Arguments}");
     Process.Start(proc);
 }
@@ -340,7 +358,7 @@ bool IsProcessRunning(string name)
 
 public class MainConfig
 {
-    public List<ProcessConfig> Processes { get; set; }
+    public required List<ProcessConfig> Processes { get; set; }
     public TimeSpan CheckInterval { get; set; } = TimeSpan.FromSeconds(1);
     public bool LogToConsole { get; set; } = false;
     public bool LogToFile { get; set; } = false;
@@ -349,16 +367,17 @@ public class MainConfig
 
 public class ProcessConfig
 {
-    public string ProcessName { get; set; }
+    public required string ProcessName { get; set; }
     public TimeSpan? GracePeriod { get; set; } = TimeSpan.FromSeconds(5);
-    public List<SubProgramData> SubPrograms { get; set; }
+    public required List<SubProgramData> SubPrograms { get; set; }
+    public bool Enabled { get; set; } = true;
 }
 
 public class SubProgramData
 {
     [JsonIgnore]
     public string ProcessName => Path.GetFileNameWithoutExtension(ProgramPath);
-    public string ProgramPath { get; set; }
+    public required string ProgramPath { get; set; }
     public string? WorkingDirectory { get; set; }
 
     [JsonIgnore]
@@ -369,6 +388,8 @@ public class SubProgramData
     public bool CreateNoWindow { get; set; } = false;
     public bool AlwaysRun { get; set; } = false;
     public TimeSpan? Delay { get; set; }
+    public bool Enabled { get; set; } = true;
+    public Dictionary<string, string>? EnvironmentVariables { get; set; }
 }
 
 public static class Extensions
