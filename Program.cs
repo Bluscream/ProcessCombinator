@@ -211,70 +211,179 @@ while (true)
                     {
                         if (subProgramData.KeepRunning)
                             continue;
-                        foreach (var proc in Process.GetProcessesByName(subProgramData.ProcessName))
+                        Process[] processes;
+                        try
+                        {
+                            processes = Process.GetProcessesByName(subProgramData.ProcessName);
+                        }
+                        catch
+                        {
+                            processes = Array.Empty<Process>();
+                        }
+                        
+                        foreach (var proc in processes)
                         {
                             new Thread(() =>
                             {
                                 try
                                 {
-                                    Log($"Closing {subProgramData.ProcessName}");
-                                    var t = Task.Run(() =>
+                                    // Check if process has already exited
+                                    try
                                     {
-                                        proc.CloseMainWindow();
-                                    });
-                                    if (t.Wait(500))
-                                    {
-                                        if (IsProcessRunning(subProgramData.ProcessName))
+                                        if (proc.HasExited)
                                         {
-                                            Log(
-                                                $"{subProgramData.ProcessName} did not close main window in time, closing process!"
-                                            );
-                                            t = Task.Run(() =>
+                                            proc.Dispose();
+                                            return;
+                                        }
+                                    }
+                                    catch (InvalidOperationException)
+                                    {
+                                        // Process might have exited between GetProcessesByName and here
+                                        try
+                                        {
+                                            proc.Dispose();
+                                        }
+                                        catch { }
+                                        return;
+                                    }
+                                    
+                                    Log($"Closing {subProgramData.ProcessName}");
+                                    try
+                                    {
+                                        bool hasMainWindow = false;
+                                        try
+                                        {
+                                            hasMainWindow = proc.MainWindowHandle != IntPtr.Zero;
+                                        }
+                                        catch { }
+                                        
+                                        if (hasMainWindow && proc.CloseMainWindow())
+                                        {
+                                            if (!proc.WaitForExit(500))
                                             {
-                                                proc.Close();
-                                            });
-                                            if (t.Wait(250))
-                                            {
-                                                if (IsProcessRunning(subProgramData.ProcessName))
+                                                if (!proc.HasExited)
                                                 {
                                                     Log(
-                                                        $"{subProgramData.ProcessName} did not close in time, killing process!"
+                                                        $"{subProgramData.ProcessName} did not close main window in time, closing process!"
                                                     );
-                                                    t = Task.Run(() =>
+                                                    try
                                                     {
-                                                        proc.Kill();
-                                                    });
-                                                    if (t.Wait(250))
-                                                    {
-                                                        if (
-                                                            IsProcessRunning(
-                                                                subProgramData.ProcessName
-                                                            )
-                                                        )
+                                                        if (!proc.HasExited)
                                                         {
-                                                            Log(
-                                                                $"{subProgramData.ProcessName} did not die in time, ignoring!"
-                                                            );
-                                                            return;
+                                                            proc.Close();
+                                                            if (!proc.WaitForExit(250))
+                                                            {
+                                                                if (!proc.HasExited)
+                                                                {
+                                                                    Log(
+                                                                        $"{subProgramData.ProcessName} did not close in time, killing process!"
+                                                                    );
+                                                                    try
+                                                                    {
+                                                                        if (!proc.HasExited)
+                                                                        {
+                                                                            proc.Kill();
+                                                                            if (!proc.WaitForExit(250))
+                                                                            {
+                                                                                if (!proc.HasExited)
+                                                                                {
+                                                                                    Log(
+                                                                                        $"{subProgramData.ProcessName} did not die in time, ignoring!"
+                                                                                    );
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    catch (Exception killEx)
+                                                                    {
+                                                                        Log($"Error killing {subProgramData.ProcessName}: {killEx.Message}");
+                                                                        StartProcess(
+                                                                            "taskkill",
+                                                                            new() { "/f", "/im", subProgramData.ParsedPath.Name },
+                                                                            noWindow: true
+                                                                        );
+                                                                    }
+                                                                }
+                                                            }
                                                         }
                                                     }
+                                                    catch (Exception closeEx)
+                                                    {
+                                                        Log($"Error closing {subProgramData.ProcessName}: {closeEx.Message}");
+                                                        try
+                                                        {
+                                                            if (!proc.HasExited)
+                                                            {
+                                                                proc.Kill();
+                                                            }
+                                                        }
+                                                        catch { }
+                                                    }
+                                                }
+                                            }
+                                            else
+                                            {
+                                                Log($"Closed {subProgramData.ProcessName}");
+                                            }
+                                        }
+                                        else
+                                        {
+                                            // No main window or CloseMainWindow returned false, try to kill directly
+                                            if (!proc.HasExited)
+                                            {
+                                                Log(
+                                                    $"{subProgramData.ProcessName} has no main window, killing process directly"
+                                                );
+                                                try
+                                                {
+                                                    proc.Kill();
+                                                    if (proc.WaitForExit(250))
+                                                    {
+                                                        Log($"Killed {subProgramData.ProcessName}");
+                                                    }
+                                                    else if (!proc.HasExited)
+                                                    {
+                                                        Log($"{subProgramData.ProcessName} did not die in time, ignoring!");
+                                                    }
+                                                }
+                                                catch (Exception killEx)
+                                                {
+                                                    Log($"Error killing {subProgramData.ProcessName}: {killEx.Message}");
+                                                    StartProcess(
+                                                        "taskkill",
+                                                        new() { "/f", "/im", subProgramData.ParsedPath.Name },
+                                                        noWindow: true
+                                                    );
                                                 }
                                             }
                                         }
                                     }
-                                    else
+                                    catch (InvalidOperationException)
                                     {
-                                        Log($"Closed {subProgramData.ProcessName}");
+                                        // Process has exited
+                                        Log($"Process {subProgramData.ProcessName} already exited");
+                                    }
+                                    finally
+                                    {
+                                        try
+                                        {
+                                            proc.Dispose();
+                                        }
+                                        catch { }
                                     }
                                 }
                                 catch (Exception ex)
                                 {
-                                    Log(ex.Message);
-                                    StartProcess(
-                                        "taskkill",
-                                        new() { "/f", "/im", subProgramData.ParsedPath.Name },
-                                        noWindow: true
-                                    );
+                                    Log($"Exception closing {subProgramData.ProcessName}: {ex.Message}");
+                                    try
+                                    {
+                                        StartProcess(
+                                            "taskkill",
+                                            new() { "/f", "/im", subProgramData.ParsedPath.Name },
+                                            noWindow: true
+                                        );
+                                    }
+                                    catch { }
                                 }
                             }).Start();
                         }
@@ -316,7 +425,79 @@ void StartProcessFromFile(
     bool noWindow = false,
     bool shellExecute = false,
     Dictionary<string, string>? environmentVariables = null
-) => StartProcess(path.FullName, args, workDir, noWindow, shellExecute, environmentVariables);
+)
+{
+    var extension = path.Extension.ToLowerInvariant();
+    string executablePath = path.FullName;
+    List<string> executableArgs = new List<string>(args);
+    
+    // Handle PowerShell scripts
+    if (extension == ".ps1")
+    {
+        // Try pwsh.exe first (PowerShell 7+), then fall back to powershell.exe
+        var pwshPath = "";
+        
+        // Check common PowerShell 7 installation paths
+        var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        var possiblePaths = new[]
+        {
+            Path.Combine(programFiles, "PowerShell", "7", "pwsh.exe"),
+            Path.Combine(programFiles, "PowerShell", "7-preview", "pwsh.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "WindowsApps", "pwsh.exe"),
+            Environment.GetEnvironmentVariable("POWERSHELL7_PATH") ?? "",
+        };
+        
+        foreach (var possiblePath in possiblePaths)
+        {
+            if (string.IsNullOrEmpty(possiblePath))
+                continue;
+                
+            if (File.Exists(possiblePath))
+            {
+                pwshPath = possiblePath;
+                break;
+            }
+        }
+        
+        // If not found in common paths, try "pwsh.exe" (will search PATH)
+        if (string.IsNullOrEmpty(pwshPath))
+        {
+            pwshPath = "pwsh.exe";
+        }
+        
+        executablePath = pwshPath;
+        executableArgs.Insert(0, "-NoProfile");
+        executableArgs.Insert(1, "-ExecutionPolicy");
+        executableArgs.Insert(2, "Bypass");
+        executableArgs.Insert(3, "-File");
+        executableArgs.Insert(4, path.FullName);
+        
+        // If pwsh.exe fails, fall back to Windows PowerShell will happen naturally via exception handling
+        StartProcess(executablePath, executableArgs, workDir, noWindow, false, environmentVariables);
+        return;
+    }
+    
+    // Handle batch files - ensure they use shell execute or cmd.exe
+    if (extension == ".bat" || extension == ".cmd")
+    {
+        // If shellExecute is not set, run via cmd.exe
+        if (!shellExecute)
+        {
+            executablePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
+            if (!File.Exists(executablePath))
+            {
+                executablePath = "cmd.exe";
+            }
+            executableArgs.Insert(0, "/c");
+            executableArgs.Insert(1, path.FullName);
+            StartProcess(executablePath, executableArgs, workDir, noWindow, false, environmentVariables);
+            return;
+        }
+    }
+    
+    StartProcess(executablePath, executableArgs, workDir, noWindow, shellExecute, environmentVariables);
+}
+
 void StartProcess(
     string path,
     List<string> args,
@@ -347,13 +528,61 @@ void StartProcess(
 
 bool IsProcessRunning(string name)
 {
-    if (config.CaseInsensitive)
+    try
     {
-        return Process
-            .GetProcesses()
-            .Any(p => string.Equals(p.ProcessName, name, StringComparison.OrdinalIgnoreCase));
+        if (config.CaseInsensitive)
+        {
+            var processes = Process.GetProcesses();
+            try
+            {
+                return processes.Any(p =>
+                {
+                    try
+                    {
+                        return string.Equals(p.ProcessName, name, StringComparison.OrdinalIgnoreCase);
+                    }
+                    catch
+                    {
+                        return false;
+                    }
+                });
+            }
+            finally
+            {
+                foreach (var proc in processes)
+                {
+                    try
+                    {
+                        proc.Dispose();
+                    }
+                    catch { }
+                }
+            }
+        }
+        else
+        {
+            var processes = Process.GetProcessesByName(name);
+            try
+            {
+                return processes.Length > 0;
+            }
+            finally
+            {
+                foreach (var proc in processes)
+                {
+                    try
+                    {
+                        proc.Dispose();
+                    }
+                    catch { }
+                }
+            }
+        }
     }
-    return Process.GetProcessesByName(name).Length > 0;
+    catch
+    {
+        return false;
+    }
 }
 
 public class MainConfig
