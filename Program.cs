@@ -209,7 +209,7 @@ while (true)
                     Log($"{processData.ProcessName} was closed at {DateTime.Now}");
                     foreach (var subProgramData in processData.SubPrograms)
                     {
-                        if (subProgramData.KeepRunning)
+                        if (!subProgramData.Enabled || subProgramData.KeepRunning)
                             continue;
                         Process[] processes;
                         try
